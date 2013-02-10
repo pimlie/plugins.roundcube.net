@@ -326,6 +326,13 @@ ul.packages h1 {
   height: 32px;
 }
 
+ul.packages h1 .metadata {
+  float: right;
+  color: #555;
+  font-size: 18px;
+  margin-right: 10px;
+}
+
 ul.packages li {
     background: none repeat scroll 0 0 #EEEEEE;
     border: 1px solid #BBBBBB;
@@ -397,6 +404,21 @@ form ul {
   margin: 10px 0;
 }
 
+/* Explore */
+.packages-short {
+  width: 50%;
+  float: left;
+  height: 415px;
+}
+.packages-short li a {
+  display: block;
+}
+.packages-short ul {
+  list-style: none;
+  margin: 0;
+}
+
+
 /* Search */
 #search_query_query {
   width: 890px;
@@ -431,6 +453,9 @@ form ul {
 .package > h1 {
   float: left;
   margin-right: 20px;
+}
+#copy {
+  cursor: pointer;
 }
 .package .warning {
   clear: both;
@@ -503,6 +528,11 @@ form ul {
 }
 .package .version h1 {
   margin-bottom: 5px;
+  cursor: pointer;
+}
+.package .version .source-reference {
+  padding-left: 10px;
+  font-size: 12px;
 }
 .package .version .release-date {
   padding-left: 10px;
@@ -511,7 +541,6 @@ form ul {
 }
 .package .version .license {
   float: right;
-  width: 250px;
   font-size: 14px;
   clear: right;
   text-align: right;
@@ -555,7 +584,7 @@ form ul {
   border-radius: 0;
   background-color: transparent;
   font-family: Courier;
-  min-width: 300px;
+  min-width: 500px;
   width: auto;
 }
 .package .package-links .provides {
@@ -590,14 +619,12 @@ form ul {
 }
 
 .package .mark-favorite {
-  width: 16px;
-  height: 16px;
-  display: inline-block;
-  background: url(../img/favorite.png) 0 -17px no-repeat;
+  font-size: 20px;
   cursor: pointer;
+  color: #c4b90c;
 }
-.package .mark-favorite.is-favorite {
-  background-position: 0 0;
+.package .mark-favorite.icon-star {
+  color: #eadc00;
 }
 
 .no-js .package .force-update, .no-js .package .mark-favorite {
@@ -613,6 +640,23 @@ form ul {
   margin: 0;
   padding: 8px;
   background-image: none;
+}
+.package .action.delete input, .package .action.delete-version input {
+  background: #a61c1c;
+  background: -moz-linear-gradient(top, #a61c1c 0%, #b84949 100%);
+  background: -webkit-linear-gradient(top, #a61c1c 0%, #b84949 100%);
+  background: -o-linear-gradient(top, #a61c1c 0%, #b84949 100%);
+  background: -ms-linear-gradient(top, #a61c1c 0%, #b84949 100%);
+  background: linear-gradient(top, #a61c1c 0%, #b84949 100%);
+}
+.package .action.delete-version {
+  float: none;
+  display: inline-block;
+  height: 20px;
+}
+.package .action.delete-version input {
+  font-size: 10px;
+  padding: 3px;
 }
 .package .action input.loading {
   background-position: 10px center;
@@ -630,6 +674,17 @@ pre {
   display: block;
   padding: 5px;
   margin: 10px 0;
+}
+
+.humane {
+  max-height: 90%;
+  overflow: auto;
+}
+.humane pre {
+  text-align: left;
+  background-color: #111;
+  color: #fff;
+  text-shadow: none;
 }
 
 /*

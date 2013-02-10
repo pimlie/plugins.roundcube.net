@@ -12,16 +12,18 @@
 
 namespace Packagist\WebBundle\Controller;
 
-use Composer\IO\NullIO;
+use Composer\IO\BufferIO;
 use Composer\Factory;
 use Composer\Repository\VcsRepository;
+use Composer\Repository\InvalidRepositoryException;
 use Composer\Package\Loader\ValidatingArrayLoader;
 use Composer\Package\Loader\ArrayLoader;
 use Packagist\WebBundle\Package\Updater;
 use Packagist\WebBundle\Entity\Package;
-use Symfony\Bundle\FrameworkBundle\Controller\Controller;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Console\Output\OutputInterface;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Template;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
@@ -82,7 +84,7 @@ class ApiController extends Controller
      */
     public function githubPostReceive(Request $request)
     {
-        return $this->receivePost($request, '{(^|//)(?P<url>github\.com/[\w.-]+/[\w.-]+?)(\.git)?$}', '(\.git)?$');
+        return $this->receivePost($request, '{^(?:https?://|git://|git@)?(?P<domain>github\.com)[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?$}');
     }
 
     /**
@@ -91,7 +93,7 @@ class ApiController extends Controller
      */
     public function bitbucketPostReceive(Request $request)
     {
-        return $this->receivePost($request, '{(^|//)(?P<url>bitbucket\.org/[\w.-]+/[\w.-]+?)/?$}', '/?$');
+        return $this->receivePost($request, '{^(?:https?://)?(?P<domain>bitbucket\.org)/(?P<repo>[\w.-]+/[\w.-]+?)/?$}');
     }
 
     /**
@@ -100,25 +102,76 @@ class ApiController extends Controller
      */
     public function trackDownloadAction(Request $request, $name)
     {
-        $result = $this->get('doctrine.dbal.default_connection')->fetchAssoc(
+        $result = $this->getPackageAndVersionId($name, $request->request->get('version_normalized'));
+
+        if (!$result) {
+            return new JsonResponse(array('status' => 'error', 'message' => 'Package not found'), 200);
+        }
+
+        $this->trackDownload($result['id'], $result['vid'], $request->getClientIp());
+
+        return new JsonResponse(array('status' => 'success'), 201);
+    }
+
+    /**
+     * Expects a json like:
+     *
+     * {
+     *     "downloads": [
+     *         {"name": "foo/bar", "version": "1.0.0.0"},
+     *         // ...
+     *     ]
+     * }
+     *
+     * The version must be the normalized one
+     *
+     * @Route("/downloads/", name="track_download_batch", defaults={"_format" = "json"})
+     * @Method({"POST"})
+     */
+    public function trackDownloadsAction(Request $request)
+    {
+        $contents = json_decode($request->getContent(), true);
+        if (empty($contents['downloads']) || !is_array($contents['downloads'])) {
+            return new JsonResponse(array('status' => 'error', 'message' => 'Invalid request format, must be a json object containing a downloads key filled with an array of name/version objects'), 200);
+        }
+
+        $failed = array();
+        foreach ($contents['downloads'] as $package) {
+            $result = $this->getPackageAndVersionId($package['name'], $package['version']);
+
+            if (!$result) {
+                $failed[] = $package;
+                continue;
+            }
+
+            $this->trackDownload($result['id'], $result['vid'], $request->getClientIp());
+        }
+
+        if ($failed) {
+            return new JsonResponse(array('status' => 'partial', 'message' => 'Packages '.json_encode($failed).' not found'), 200);
+        }
+
+        return new JsonResponse(array('status' => 'success'), 201);
+    }
+
+    protected function getPackageAndVersionId($name, $version)
+    {
+        return $this->get('doctrine.dbal.default_connection')->fetchAssoc(
             'SELECT p.id, v.id vid
             FROM package p
             LEFT JOIN package_version v ON p.id = v.package_id
             WHERE p.name = ?
             AND v.normalizedVersion = ?
             LIMIT 1',
-            array($name, $request->request->get('version_normalized'))
+            array($name, $version)
         );
+    }
 
-        if (!$result) {
-            return new Response('{"status": "error", "message": "Package not found"}', 200);
-        }
-
+    protected function trackDownload($id, $vid, $ip)
+    {
         $redis = $this->get('snc_redis.default');
-        $id = $result['id'];
-        $version = $result['vid'];
 
-        $throttleKey = 'dl:'.$id.':'.$request->getClientIp().':'.date('Ymd');
+        $throttleKey = 'dl:'.$id.':'.$ip.':'.date('Ymd');
         $requests = $redis->incr($throttleKey);
         if (1 === $requests) {
             $redis->expire($throttleKey, 86400);
@@ -130,15 +183,13 @@ class ApiController extends Controller
             $redis->incr('dl:'.$id.':'.date('Ym'));
             $redis->incr('dl:'.$id.':'.date('Ymd'));
 
-            $redis->incr('dl:'.$id.'-'.$version);
-            $redis->incr('dl:'.$id.'-'.$version.':'.date('Ym'));
-            $redis->incr('dl:'.$id.'-'.$version.':'.date('Ymd'));
+            $redis->incr('dl:'.$id.'-'.$vid);
+            $redis->incr('dl:'.$id.'-'.$vid.':'.date('Ym'));
+            $redis->incr('dl:'.$id.'-'.$vid.':'.date('Ymd'));
         }
-
-        return new Response('{"status": "success"}', 201);
     }
 
-    protected function receivePost(Request $request, $urlRegex, $optionalRepositorySuffix)
+    protected function receivePost(Request $request, $urlRegex)
     {
         $payload = json_decode($request->request->get('payload'), true);
         if (!$payload || !isset($payload['repository']['url'])) {
@@ -146,11 +197,9 @@ class ApiController extends Controller
         }
 
         // try to parse the URL first to avoid the DB lookup on malformed requests
-        if (!preg_match($urlRegex, $payload['repository']['url'], $match)) {
+        if (!preg_match($urlRegex, $payload['repository']['url'], $requestedRepo)) {
             return new Response(json_encode(array('status' => 'error', 'message' => 'Could not parse payload repository URL',)), 406);
         }
-
-        $payloadRepositoryChunk = $match['url'];
 
         $username = $request->request->has('username') ?
             $request->request->get('username') :
@@ -174,15 +223,31 @@ class ApiController extends Controller
         $em = $this->get('doctrine.orm.entity_manager');
 
         foreach ($user->getPackages() as $package) {
-            if (preg_match('{'.preg_quote($payloadRepositoryChunk).$optionalRepositorySuffix.'}', $package->getRepository())) {
+            if (preg_match($urlRegex, $package->getRepository(), $candidate)
+                && $candidate['domain'] === $requestedRepo['domain']
+                && $candidate['repo'] === $requestedRepo['repo']
+            ) {
                 set_time_limit(3600);
                 $updated = true;
 
-                $repository = new VcsRepository(array('url' => $package->getRepository()), new NullIO, $config);
+                $io = new BufferIO('', OutputInterface::VERBOSITY_VERBOSE);
+                $repository = new VcsRepository(array('url' => $package->getRepository()), $io, $config);
                 $repository->setLoader($loader);
                 $package->setAutoUpdated(true);
                 $em->flush();
-                $updater->update($package, $repository);
+                try {
+                    $updater->update($package, $repository);
+                } catch (\Exception $e) {
+                    if ($e instanceof InvalidRepositoryException) {
+                        $this->get('packagist.package_manager')->notifyUpdateFailure($package, $e, $io->getOutput());
+                    }
+
+                    return new Response(json_encode(array(
+                        'status' => 'error',
+                        'message' => '['.get_class($e).'] '.$e->getMessage(),
+                        'details' => '<pre>'.$io->getOutput().'</pre>'
+                    )), 400);
+                }
             }
         }
 

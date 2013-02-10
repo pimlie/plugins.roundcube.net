@@ -15,6 +15,7 @@ namespace Packagist\WebBundle\Package;
 use Composer\Package\AliasPackage;
 use Composer\Package\PackageInterface;
 use Composer\Repository\RepositoryInterface;
+use Composer\Repository\InvalidRepositoryException;
 use Composer\Util\ErrorHandler;
 use Packagist\WebBundle\Entity\Author;
 use Packagist\WebBundle\Entity\Package;
@@ -96,6 +97,10 @@ class Updater
 
         $versions = $repository->getPackages();
         $em = $this->doctrine->getEntityManager();
+
+        if ($repository->hadInvalidBranches()) {
+            throw new InvalidRepositoryException('Some branches contained invalid data and were discarded, it is advised to review the log and fix any issues present in branches');
+        }
 
         usort($versions, function ($a, $b) {
             $aVersion = $a->getVersion();
@@ -192,6 +197,8 @@ class Updater
             $source['url'] = $data->getSourceUrl();
             $source['reference'] = $data->getSourceReference();
             $version->setSource($source);
+        } else {
+            $version->setSource(null);
         }
 
         if ($data->getDistType()) {
@@ -200,6 +207,8 @@ class Updater
             $dist['reference'] = $data->getDistReference();
             $dist['shasum'] = $data->getDistSha1Checksum();
             $version->setDist($dist);
+        } else {
+            $version->setDist(null);
         }
 
         if ($data->getType()) {
@@ -218,7 +227,7 @@ class Updater
 
         $version->getTags()->clear();
         if ($data->getKeywords()) {
-            foreach ($data->getKeywords() as $keyword) {
+            foreach (array_unique($data->getKeywords()) as $keyword) {
                 $tag = Tag::getByName($em, $keyword, true);
                 if (!$version->getTags()->contains($tag)) {
                     $version->addTag($tag);
@@ -277,7 +286,25 @@ class Updater
         foreach ($this->supportedLinkTypes as $linkType => $opts) {
             $links = array();
             foreach ($data->{$opts['method']}() as $link) {
-                $links[$link->getTarget()] = $link->getPrettyConstraint();
+                $constraint = $link->getPrettyConstraint();
+                if (false !== strpos($constraint, '~')) {
+                    $constraint = str_replace(array('[', ']'), '', $link->getConstraint());
+                    $constraint = preg_replace('{(\d\.\d)(\.0)+(?=$|,|-)}', '$1', $constraint);
+                    $constraint = preg_replace('{([><=,]) }', '$1', $constraint);
+                    $constraint = preg_replace('{(<[0-9.]+)-dev}', '$1', $constraint);
+                }
+
+                if (false !== strpos($constraint, ',') && false !== strpos($constraint, '@')) {
+                    $constraint = preg_replace_callback('{([><]=?\s*[^@]+?)@([a-z]+)}i', function ($matches) {
+                        if ($matches[2] === 'stable') {
+                            return $matches[1];
+                        }
+
+                        return $matches[1].'-'.$matches[2];
+                    }, $constraint);
+                }
+
+                $links[$link->getTarget()] = $constraint;
             }
 
             foreach ($version->{'get'.$linkType}() as $link) {

@@ -12,7 +12,8 @@
 
 namespace Packagist\WebBundle\Controller;
 
-use Composer\IO\NullIO;
+use Composer\Console\HtmlOutputFormatter;
+use Composer\IO\BufferIO;
 use Composer\Factory;
 use Composer\Repository\VcsRepository;
 use Composer\Package\Loader\ValidatingArrayLoader;
@@ -23,15 +24,16 @@ use Packagist\WebBundle\Form\Model\AddMaintainerRequest;
 use Packagist\WebBundle\Form\Type\SearchQueryType;
 use Packagist\WebBundle\Form\Model\SearchQuery;
 use Packagist\WebBundle\Package\Updater;
-use Symfony\Bundle\FrameworkBundle\Controller\Controller;
 use Packagist\WebBundle\Entity\Package;
 use Packagist\WebBundle\Entity\Version;
+use Packagist\WebBundle\Model\FixedAdapter;
 use Packagist\WebBundle\Form\Type\PackageType;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Console\Output\OutputInterface;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Template;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
@@ -39,6 +41,7 @@ use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Pagerfanta\Pagerfanta;
 use Pagerfanta\Adapter\DoctrineORMAdapter;
 use Pagerfanta\Adapter\SolariumAdapter;
+use Predis\Connection\ConnectionException;
 
 /**
  * @author Jordi Boggiano <j.boggiano@seld.be>
@@ -55,10 +58,10 @@ class WebController extends Controller
     }
 
     /**
-     * @Template()
-     * @Route("/packages/", name="browse")
+     * @Template("PackagistWebBundle:Web:browse.html.twig")
+     * @Route("/packages/", name="allPackages")
      */
-    public function browseAction(Request $req)
+    public function allAction(Request $req)
     {
         $filters = array(
             'type' => $req->query->get('type'),
@@ -73,7 +76,76 @@ class WebController extends Controller
             ->getFilteredQueryBuilder($filters);
 
         $data['packages'] = $this->setupPager($packages, $page);
+        $data['meta'] = $this->getPackagesMetadata($data['packages']);
         $data['searchForm'] = $this->createSearchForm()->createView();
+
+        return $data;
+    }
+
+    /**
+     * @Template()
+     * @Route("/explore/", name="browse")
+     */
+    public function exploreAction(Request $req)
+    {
+        $pkgRepo = $this->getDoctrine()->getRepository('PackagistWebBundle:Package');
+        $verRepo = $this->getDoctrine()->getRepository('PackagistWebBundle:Version');
+        $newSubmitted = $pkgRepo->getQueryBuilderForNewestPackages()->setMaxResults(10)->getQuery()->getResult();
+        $newReleases = $verRepo->getLatestReleases(10);
+        $randomIds = $this->getDoctrine()->getConnection()->fetchAll('SELECT id FROM package ORDER BY RAND() LIMIT 10');
+        $random = $pkgRepo->createQueryBuilder('p')->where('p.id IN (:ids)')->setParameter('ids', $randomIds)->getQuery()->getResult();
+        try {
+            $popular = array();
+            $popularIds = $this->get('snc_redis.default')->zrevrange('downloads:trending', 0, 9);
+            if ($popularIds) {
+                $popular = $pkgRepo->createQueryBuilder('p')->where('p.id IN (:ids)')->setParameter('ids', $popularIds)->getQuery()->getResult();
+                usort($popular, function ($a, $b) use ($popularIds) {
+                    return array_search($a->getId(), $popularIds) > array_search($b->getId(), $popularIds) ? 1 : -1;
+                });
+            }
+        } catch (ConnectionException $e) {
+            $popular = array();
+        }
+
+        $data = array(
+            'newlySubmitted' => $newSubmitted,
+            'newlyReleased' => $newReleases,
+            'random' => $random,
+            'popular' => $popular,
+            'searchForm' => $this->createSearchForm()->createView(),
+        );
+
+        return $data;
+    }
+
+    /**
+     * @Template()
+     * @Route("/explore/popular", name="browse_popular")
+     */
+    public function popularAction(Request $req)
+    {
+        $redis = $this->get('snc_redis.default');
+        $popularIds = $redis->zrevrange(
+            'downloads:trending',
+            ($req->get('page', 1) - 1) * 15,
+            $req->get('page', 1) * 15 - 1
+        );
+        $popular = $this->getDoctrine()->getRepository('PackagistWebBundle:Package')
+            ->createQueryBuilder('p')->where('p.id IN (:ids)')->setParameter('ids', $popularIds)
+            ->getQuery()->getResult();
+        usort($popular, function ($a, $b) use ($popularIds) {
+            return array_search($a->getId(), $popularIds) > array_search($b->getId(), $popularIds) ? 1 : -1;
+        });
+
+        $packages = new Pagerfanta(new FixedAdapter($popular, $redis->zcard('downloads:trending')));
+        $packages->setMaxPerPage(15);
+        $packages->setCurrentPage($req->get('page', 1), false, true);
+
+        $data = array(
+            'packages' => $packages,
+            'searchForm' => $this->createSearchForm()->createView(),
+        );
+        $data['meta'] = $this->getPackagesMetadata($data['packages']);
 
         return $data;
     }
@@ -118,72 +190,124 @@ class WebController extends Controller
         // transform q=search shortcut
         if ($req->query->has('q')) {
             $req->query->set('search_query', array('query' => $req->query->get('q')));
-        } elseif ($req->getRequestFormat() === 'json') {
-            return new JsonResponse(array('error' => 'Missing search query, example: ?q=example'), 400);
         }
 
-        if ($req->query->has('search_query')) {
-            $form->bind($req);
-            if ($form->isValid()) {
-                /** @var $solarium \Solarium_Client */
-                $solarium = $this->get('solarium.client');
+        $typeFilter = $req->query->get('type');
+        $tagsFilter = $req->query->get('tags');
 
-                $select = $solarium->createSelect();
-                $escapedQuery = $select->getHelper()->escapeTerm($form->getData()->getQuery());
-                $typeFilter = $req->query->get('type');
+        if ($req->query->has('search_query') || $typeFilter || $tagsFilter) {
+            /** @var $solarium \Solarium_Client */
+            $solarium = $this->get('solarium.client');
+            $select = $solarium->createSelect();
 
-                // filter by type
-                if ($typeFilter !== null) {
-                    $filterQueryTerm = sprintf('type:%s', $select->getHelper()->escapeTerm($typeFilter));
-                    $filterQuery = $select->createFilterQuery('type')->setQuery($filterQueryTerm);
-                    $select->addFilterQuery($filterQuery);
+            // configure dismax
+            $dismax = $select->getDisMax();
+            $dismax->setQueryFields(array('name^4', 'description', 'tags', 'text', 'text_ngram', 'name_split^2'));
+            $dismax->setPhraseFields(array('description'));
+            $dismax->setBoostFunctions(array('log(trendiness)^10'));
+            $dismax->setMinimumMatch(1);
+            $dismax->setQueryParser('edismax');
+
+            // filter by type
+            if ($typeFilter) {
+                $filterQueryTerm = sprintf('type:%s', $select->getHelper()->escapeTerm($typeFilter));
+                $filterQuery = $select->createFilterQuery('type')->setQuery($filterQueryTerm);
+                $select->addFilterQuery($filterQuery);
+            }
+
+            // filter by tags
+            if ($tagsFilter) {
+                $tags = array();
+                foreach ((array) $tagsFilter as $tag) {
+                    $tags[] = $select->getHelper()->escapeTerm($tag);
                 }
-                $dismax = $select->getDisMax();
-                $dismax->setQueryFields(array('name^2', 'description', 'tags', 'text', 'text_ngram', 'name_split^1.5'));
-                $dismax->setPhraseFields(array('description^30'));
-                //this is very lenient, and may want to be refined
-                $dismax->setMinimumMatch(1);
-                $dismax->setQueryParser('edismax');
-                $select->setQuery($escapedQuery);
+                $filterQueryTerm = sprintf('tags:(%s)', implode(' AND ', $tags));
+                $filterQuery = $select->createFilterQuery('tags')->setQuery($filterQueryTerm);
+                $select->addFilterQuery($filterQuery);
+            }
 
-                $paginator = new Pagerfanta(new SolariumAdapter($solarium, $select));
-                $paginator->setMaxPerPage(15);
-                $paginator->setCurrentPage($req->query->get('page', 1), false, true);
+            if ($req->query->has('search_query')) {
+                $form->bind($req);
+                if ($form->isValid()) {
+                    $escapedQuery = $select->getHelper()->escapeTerm($form->getData()->getQuery());
+                    $select->setQuery($escapedQuery);
+                }
+            }
 
-                if ($req->getRequestFormat() === 'json') {
+            $paginator = new Pagerfanta(new SolariumAdapter($solarium, $select));
+            $paginator->setMaxPerPage(15);
+            $paginator->setCurrentPage($req->query->get('page', 1), false, true);
+
+            $metadata = $this->getPackagesMetadata($paginator);
+
+            if ($req->getRequestFormat() === 'json') {
+                try {
                     $result = array(
                         'results' => array(),
                         'total' => $paginator->getNbResults(),
                     );
-                    foreach ($paginator as $package) {
-                        $url = $this->generateUrl('view_package', array('name' => $package->name), true);
-
-                        $result['results'][] = array(
-                            'name' => $package->name,
-                            'description' => $package->description ?: '',
-                            'url' => $url
-                        );
-                    }
-                    if ($paginator->hasNextPage()) {
-                        $result['next'] = $this->generateUrl('search', array(
-                            '_format' => 'json',
-                            'q' => $form->getData()->getQuery(),
-                            'page' => $paginator->getNextPage()
-                        ), true);
-                    }
-
-                    return new JsonResponse($result);
+                } catch (\Solarium_Client_HttpException $e) {
+                    return new JsonResponse(array(
+                        'status' => 'error',
+                        'message' => 'Could not connect to the search server',
+                    ), 500);
                 }
 
-                if ($req->isXmlHttpRequest()) {
+                foreach ($paginator as $package) {
+                    $url = $this->generateUrl('view_package', array('name' => $package->name), true);
+
+                    $result['results'][] = array(
+                        'name' => $package->name,
+                        'description' => $package->description ?: '',
+                        'url' => $url,
+                        'downloads' => $metadata['downloads'][$package->id],
+                        'favers' => $metadata['favers'][$package->id],
+                    );
+                }
+
+                if ($paginator->hasNextPage()) {
+                    $params = array(
+                        '_format' => 'json',
+                        'q' => $form->getData()->getQuery(),
+                        'page' => $paginator->getNextPage()
+                    );
+                    if ($tagsFilter) {
+                        $params['tags'] = (array) $tagsFilter;
+                    }
+                    if ($typeFilter) {
+                        $params['type'] = (array) $typeFilter;
+                    }
+                    $result['next'] = $this->generateUrl('search', $params, true);
+                }
+
+                return new JsonResponse($result);
+            }
+
+            if ($req->isXmlHttpRequest()) {
+                try {
                     return $this->render('PackagistWebBundle:Web:list.html.twig', array(
                         'packages' => $paginator,
+                        'meta' => $metadata,
                         'noLayout' => true,
                     ));
+                } catch (\Twig_Error_Runtime $e) {
+                    if (!$e->getPrevious() instanceof \Solarium_Client_HttpException) {
+                        throw $e;
+                    }
+                    return new JsonResponse(array(
+                        'status' => 'error',
+                        'message' => 'Could not connect to the search server',
+                    ), 500);
                 }
-
-                return $this->render('PackagistWebBundle:Web:search.html.twig', array('packages' => $paginator, 'searchForm' => $form->createView()));
             }
+
+            return $this->render('PackagistWebBundle:Web:search.html.twig', array(
+                'packages' => $paginator,
+                'meta' => $metadata,
+                'searchForm' => $form->createView(),
+            ));
+        } elseif ($req->getRequestFormat() === 'json') {
+            return new JsonResponse(array('error' => 'Missing search query, example: ?q=example'), 400);
         }
 
         return $this->render('PackagistWebBundle:Web:search.html.twig', array('searchForm' => $form->createView()));
@@ -197,6 +321,7 @@ class WebController extends Controller
     {
         $package = new Package;
         $package->setEntityRepository($this->getDoctrine()->getRepository('PackagistWebBundle:Package'));
+        $package->setRouter($this->get('router'));
         $form = $this->createForm(new PackageType, $package);
 
         if ('POST' === $req->getMethod()) {
@@ -229,6 +354,7 @@ class WebController extends Controller
     {
         $package = new Package;
         $package->setEntityRepository($this->getDoctrine()->getRepository('PackagistWebBundle:Package'));
+        $package->setRouter($this->get('router'));
         $form = $this->createForm(new PackageType, $package);
 
         $response = array('status' => 'error', 'reason' => 'No data posted.');
@@ -236,9 +362,33 @@ class WebController extends Controller
         if ('POST' === $req->getMethod()) {
             $form->bind($req);
             if ($form->isValid()) {
-                $response = array('status' => 'success', 'name' => $package->getName());
+                list($vendor, $name) = explode('/', $package->getName(), 2);
+
+                $existingPackages = $this->getDoctrine()
+                    ->getRepository('PackagistWebBundle:Package')
+                    ->createQueryBuilder('p')
+                    ->where('p.name LIKE ?0')
+                    ->setParameters(array('%/'.$name))
+                    ->getQuery()
+                    ->getResult();
+
+                $similar = array();
+
+                foreach ($existingPackages as $existingPackage) {
+                    $similar[] = array(
+                        'name' => $existingPackage->getName(),
+                        'url' => $this->generateUrl('view_package', array('name' => $existingPackage->getName()), true),
+                    );
+                }
+
+                $response = array('status' => 'success', 'name' => $package->getName(), 'similar' => $similar);
             } else {
                 $errors = array();
+                if ($form->hasErrors()) {
+                    foreach ($form->getErrors() as $error) {
+                        $errors[] = $error->getMessageTemplate();
+                    }
+                }
                 foreach ($form->all() as $child) {
                     if ($child->hasErrors()) {
                         foreach ($child->getErrors() as $error) {
@@ -271,7 +421,13 @@ class WebController extends Controller
             return $this->redirect($this->generateUrl('search', array('q' => $vendor, 'reason' => 'vendor_not_found')));
         }
 
-        return array('packages' => $packages, 'vendor' => $vendor, 'paginate' => false, 'searchForm' => $this->createSearchForm()->createView());
+        return array(
+            'packages' => $packages,
+            'meta' => $this->getPackagesMetadata($packages),
+            'vendor' => $vendor,
+            'paginate' => false,
+            'searchForm' => $this->createSearchForm()->createView()
+        );
     }
 
     /**
@@ -327,7 +483,7 @@ class WebController extends Controller
             if ($this->getUser()) {
                 $data['is_favorite'] = $this->get('packagist.favorite_manager')->isMarked($this->getUser(), $package);
             }
-        } catch (\Exception $e) {
+        } catch (ConnectionException $e) {
             $data['downloads'] = array(
                 'total' => 'N/A',
                 'monthly' => 'N/A',
@@ -341,6 +497,7 @@ class WebController extends Controller
         }
         if ($deleteForm = $this->createDeletePackageForm($package)) {
             $data['deleteForm'] = $deleteForm->createView();
+            $data['deleteVersionCsrfToken'] = $this->get('form.csrf_provider')->generateCsrfToken('delete_version');
         }
 
         return $data;
@@ -357,12 +514,48 @@ class WebController extends Controller
      */
     public function viewPackageVersionAction(Request $req, $versionId)
     {
+        /** @var \Packagist\WebBundle\Entity\VersionRepository $repo  */
         $repo = $this->getDoctrine()->getRepository('PackagistWebBundle:Version');
-        $version = $repo->getFullVersion($versionId);
 
-        $html = $this->renderView('PackagistWebBundle:Web:versionDetails.html.twig', array('version' => $version));
+        $html = $this->renderView(
+            'PackagistWebBundle:Web:versionDetails.html.twig',
+            array('version' => $repo->getFullVersion($versionId))
+        );
 
         return new JsonResponse(array('content' => $html));
+    }
+
+    /**
+     * @Template()
+     * @Route(
+     *     "/versions/{versionId}/delete",
+     *     name="delete_version",
+     *     requirements={"name"="[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?", "versionId"="[0-9]+"}
+     * )
+     * @Method({"DELETE"})
+     */
+    public function deletePackageVersionAction(Request $req, $versionId)
+    {
+        /** @var \Packagist\WebBundle\Entity\VersionRepository $repo  */
+        $repo = $this->getDoctrine()->getRepository('PackagistWebBundle:Version');
+
+        /** @var Version $version  */
+        $version = $repo->getFullVersion($versionId);
+        $package = $version->getPackage();
+
+        if (!$package->getMaintainers()->contains($this->getUser()) && !$this->get('security.context')->isGranted('ROLE_DELETE_PACKAGES')) {
+            throw new AccessDeniedException;
+        }
+
+        if (!$this->get('form.csrf_provider')->isCsrfTokenValid('delete_version', $req->request->get('_token'))) {
+            throw new AccessDeniedException;
+        }
+
+        $repo->remove($version);
+        $this->getDoctrine()->getManager()->flush();
+        $this->getDoctrine()->getManager()->clear();
+
+        return new RedirectResponse($this->generateUrl('view_package', array('name' => $package->getName())));
     }
 
     /**
@@ -413,11 +606,21 @@ class WebController extends Controller
                 set_time_limit(3600);
                 $updater = $this->get('packagist.package_updater');
 
+                $io = new BufferIO('', OutputInterface::VERBOSITY_VERBOSE, new HtmlOutputFormatter(Factory::createAdditionalStyles()));
                 $config = Factory::createConfig();
-                $repository = new VcsRepository(array('url' => $package->getRepository()), new NullIO, $config);
+                $repository = new VcsRepository(array('url' => $package->getRepository()), $io, $config);
                 $loader = new ValidatingArrayLoader(new ArrayLoader());
                 $repository->setLoader($loader);
-                $updater->update($package, $repository, Updater::UPDATE_TAGS);
+
+                try {
+                    $updater->update($package, $repository, Updater::UPDATE_TAGS);
+                } catch (\Exception $e) {
+                    return new Response(json_encode(array(
+                        'status' => 'error',
+                        'message' => '['.get_class($e).'] '.$e->getMessage(),
+                        'details' => '<pre>'.$io->getOutput().'</pre>'
+                    )), 400);
+                }
             }
 
             return new Response('{"status": "success"}', 202);
@@ -453,9 +656,21 @@ class WebController extends Controller
                 $versionRepo->remove($version);
             }
 
+            $packageId = $package->getId();
             $em = $doctrine->getManager();
             $em->remove($package);
             $em->flush();
+
+            // attempt solr cleanup
+            try {
+                $solarium = $this->get('solarium.client');
+
+                $update = $solarium->createUpdate();
+                $update->addDeleteById($packageId);
+                $update->addCommit();
+
+                $solarium->update($update);
+            } catch (\Solarium_Client_HttpException $e) {}
 
             return new RedirectResponse($this->generateUrl('home'));
         }
@@ -563,14 +778,40 @@ class WebController extends Controller
             $chart['packages'] += array_fill(0, count($chart['months']) - count($chart['packages']), max($chart['packages']));
         }
         if (count($chart['months']) > count($chart['versions'])) {
-           $chart['versions'] += array_fill(0, count($chart['months']) - count($chart['versions']), max($chart['versions']));
+            $chart['versions'] += array_fill(0, count($chart['months']) - count($chart['versions']), max($chart['versions']));
         }
+
+
+        $res = $this->getDoctrine()
+            ->getConnection()
+            ->fetchAssoc('SELECT DATE_FORMAT(createdAt, "%Y-%m-%d") createdAt FROM `package` ORDER BY id LIMIT 1');
+        $downloadsStartDate = $res['createdAt'] > '2012-04-13' ? $res['createdAt'] : '2012-04-13';
 
         try {
             $redis = $this->get('snc_redis.default');
             $downloads = $redis->get('downloads') ?: 0;
-        } catch (\Exception $e) {
+
+            $date = new \DateTime($downloadsStartDate.' 00:00:00');
+            $yesterday = new \DateTime('-2days 00:00:00');
+
+            $dlChart = $dlChartMonthly = array();
+            while ($date <= $yesterday) {
+                $dlChart[$date->format('Y-m-d')] = 'downloads:'.$date->format('Ymd');
+                $dlChartMonthly[$date->format('Y-m')] = 'downloads:'.$date->format('Ym');
+                $date->modify('+1day');
+            }
+
+            $dlChart = array(
+                'labels' => array_keys($dlChartMonthly),
+                'values' => $redis->mget(array_values($dlChart))
+            );
+            $dlChartMonthly = array(
+                'labels' => array_keys($dlChartMonthly),
+                'values' => $redis->mget(array_values($dlChartMonthly))
+            );
+        } catch (ConnectionException $e) {
             $downloads = 'N/A';
+            $dlChart = $dlChartMonthly = null;
         }
 
         return array(
@@ -578,6 +819,11 @@ class WebController extends Controller
             'packages' => max($chart['packages']),
             'versions' => max($chart['versions']),
             'downloads' => $downloads,
+            'downloadsChart' => $dlChart,
+            'maxDailyDownloads' => !empty($dlChart) ? max($dlChart['values']) : null,
+            'downloadsChartMonthly' => $dlChartMonthly,
+            'maxMonthlyDownloads' => !empty($dlChartMonthly) ? max($dlChartMonthly['values']) : null,
+            'downloadsStartDate' => $downloadsStartDate,
         );
     }
 
@@ -627,7 +873,7 @@ class WebController extends Controller
                 /** @var $redis \Snc\RedisBundle\Client\Phpredis\Client */
                 $redis = $this->get('snc_redis.default');
                 $downloads = $redis->get('dl:'.$package->getId());
-            } catch (\Exception $e) {
+            } catch (ConnectionException $e) {
                 return;
             }
 

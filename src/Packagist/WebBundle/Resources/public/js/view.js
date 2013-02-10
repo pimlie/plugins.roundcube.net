@@ -1,7 +1,10 @@
-(function ($) {
+(function ($, humane, ZeroClipboard) {
     $('#add-maintainer').click(function (e) {
         $('#add-maintainer-form').toggleClass('hidden');
         e.preventDefault();
+    });
+    $('.package .version h1').click(function (e) {
+        $(this).siblings('.details-toggler').click();
     });
     $('.package .details-toggler').click(function (e) {
         var target = $(this);
@@ -34,7 +37,7 @@
                 window.location.href = window.location.href;
             },
             context: this
-        });
+        }).complete(function () { submit.removeClass('loading'); });
         submit.addClass('loading');
     });
     $('.package .mark-favorite').click(function (e) {
@@ -42,7 +45,7 @@
             dataType: 'json',
             cache: false,
             success: function (data) {
-                $(this).removeClass('loading').toggleClass('is-favorite');
+                $(this).toggleClass('icon-star icon-star-empty');
             },
             context: this
         };
@@ -50,7 +53,7 @@
         if ($(this).is('.loading')) {
             return;
         }
-        if ($(this).is('.is-favorite')) {
+        if ($(this).is('.icon-star')) {
             options.type = 'DELETE';
             options.url = $(this).data('remove-url');
         } else {
@@ -58,11 +61,21 @@
             options.data = {"package": $(this).data('package')};
             options.url = $(this).data('add-url');
         }
-        $.ajax(options);
+        $.ajax(options).complete(function () { $(this).removeClass('loading'); });
         $(this).addClass('loading');
     });
-    $('.package .force-delete').submit(function (e) {
+    $('.package .delete').submit(function (e) {
         e.preventDefault();
+        if (confirm('Are you sure?')) {
+            e.target.submit();
+        }
+    });
+    $('.package .delete-version').click(function (e) {
+        e.stopImmediatePropagation();
+    });
+    $('.package .delete-version').submit(function (e) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
         if (confirm('Are you sure?')) {
             e.target.submit();
         }
@@ -73,4 +86,10 @@
     if ($('.package').data('force-crawl')) {
         $('.package .force-update').submit();
     }
-})(jQuery);
+
+    ZeroClipboard.setMoviePath("/js/libs/ZeroClipboard.swf");
+    var clip = new ZeroClipboard.Client("#copy");
+    clip.on("complete", function () {
+        humane.log("Copied");
+    });
+}(jQuery, humane, ZeroClipboard));

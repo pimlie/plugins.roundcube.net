@@ -111,7 +111,13 @@ class Package
      */
     private $autoUpdated = false;
 
+    /**
+     * @ORM\Column(type="boolean", options={"default"=false})
+     */
+    private $updateFailureNotified = false;
+
     private $entityRepository;
+    private $router;
 
     /**
      * @var \Composer\Repository\Vcs\VcsDriverInterface
@@ -167,7 +173,12 @@ class Package
         try {
             $information = $driver->getComposerInformation($driver->getRootIdentifier());
 
-            if (!isset($information['name']) || !$information['name']) {
+            if (false === $information) {
+                $context->addViolationAtSubPath($property, 'No composer.json was found in the '.$driver->getRootIdentifier().' branch.', array(), null);
+                return;
+            }
+
+            if (empty($information['name'])) {
                 $context->addViolationAtSubPath($property, 'The package name was not found in the composer.json, make sure there is a name present.', array(), null);
                 return;
             }
@@ -194,11 +205,16 @@ class Package
         $this->entityRepository = $repository;
     }
 
+    public function setRouter($router)
+    {
+        $this->router = $router;
+    }
+
     public function isPackageUnique(ExecutionContext $context)
     {
         try {
             if ($this->entityRepository->findOneByName($this->name)) {
-                $context->addViolationAtSubPath('repository', 'A package with the name '.$this->name.' already exists.', array(), null);
+                $context->addViolationAtSubPath('repository', 'A package with the name <a href="'.$this->router->generate('view_package', array('name' => $this->name)).'">'.$this->name.'</a> already exists.', array(), null);
             }
         } catch (\Doctrine\ORM\NoResultException $e) {}
     }
@@ -371,6 +387,7 @@ class Package
     public function setUpdatedAt($updatedAt)
     {
         $this->updatedAt = $updatedAt;
+        $this->setUpdateFailureNotified(false);
     }
 
     /**
@@ -501,5 +518,25 @@ class Package
     public function isAutoUpdated()
     {
         return $this->autoUpdated;
+    }
+
+    /**
+     * Set updateFailureNotified
+     *
+     * @param Boolean $updateFailureNotified
+     */
+    public function setUpdateFailureNotified($updateFailureNotified)
+    {
+        $this->updateFailureNotified = $updateFailureNotified;
+    }
+
+    /**
+     * Get updateFailureNotified
+     *
+     * @return Boolean
+     */
+    public function isUpdateFailureNotified()
+    {
+        return $this->updateFailureNotified;
     }
 }

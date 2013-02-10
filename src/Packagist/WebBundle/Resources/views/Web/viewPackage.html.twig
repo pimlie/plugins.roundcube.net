@@ -2,8 +2,14 @@
 
 {% block title %}{{ package.name }} - {{ parent() }}{% endblock %}
 
+{% block head_feeds %}
+    <link rel="alternate" type="application/rss+xml" title="New Releases - {{ package.name }}" href="{{ url('feed_package', {package: package.name, _format: 'rss'}) }}" />
+    <link rel="alternate" type="application/rss+xml" title="New Releases - {{ package.vendor }}" href="{{ url('feed_vendor', {vendor: package.vendor, _format: 'rss'}) }}" />
+    {{ parent() }}
+{% endblock %}
+
 {% block scripts %}
-    <script src="{{ asset('bundles/packagistweb/js/view.js?v=6')}}"></script>
+    <script src="{{ asset('bundles/packagistweb/js/view.js?v=11')}}"></script>
 {% endblock %}
 
 {% block content %}
@@ -22,7 +28,7 @@
                 </form>
             {% endif %}
             {% if deleteForm is defined %}
-                <form class="force-delete action" action="{{ path('delete_package', {name: package.name}) }}" method="POST">
+                <form class="delete action" action="{{ path('delete_package', {name: package.name}) }}" method="POST">
                     <input type="hidden" name="_method" value="DELETE" />
                     {{ form_widget(deleteForm._token) }}
                     <input type="submit" value="Delete" />
@@ -30,23 +36,30 @@
             {% endif %}
             <h1>
                 {% if is_favorite is defined %}
-                    <a class="mark-favorite{% if is_favorite %} is-favorite{% endif %}" data-remove-url="{{ path('user_remove_fav', {name: app.user.username, package: package.name}) }}" data-add-url="{{ path('user_add_fav', {name: app.user.username}) }}" data-package="{{ package.name }}"></a>
+                    <i class="mark-favorite icon-star{% if not is_favorite %}-empty{% endif %}" data-remove-url="{{ path('user_remove_fav', {name: app.user.username, package: package.name}) }}" data-add-url="{{ path('user_add_fav', {name: app.user.username}) }}" data-package="{{ package.name }}"></i>
                 {% endif %}
                 <a href="{{ path("view_vendor", {"vendor": package.vendor}) }}">{{ package.vendor }}/</a>{{ package.packageName }}
+                <a id="copy" data-clipboard-text="{{ package.name }}" title="Copy to clipboard"><i class="icon-copy"></i></a>
             </h1>
             {% if version and version.tags|length %}
                 <p class="tags">
                     {%- for tag in version.tags -%}
-                        <a href="{{ url("browse", { "tag" : tag.name }) }}">{{ tag.name }}</a>
+                        <a href="{{ url("search", {tags: tag.name}) }}">{{ tag.name }}</a>
                     {%- endfor -%}
                 </p>
             {% endif %}
 
             {% if not package.autoUpdated
-                and app.user and package.maintainers.contains(app.user)
+                and app.user and (package.maintainers.contains(app.user) or is_granted('ROLE_UPDATE_PACKAGES'))
                 and "//github.com/" in package.repository
             %}
                 <p class="warning">This package is not auto-updated. Go and set up the <a href="{{ path('fos_user_profile_show') }}">GitHub Service Hook</a> for Packagist so that it gets updated whenever you push!</p>
+            {% endif %}
+
+            {% if package.updateFailureNotified
+                and app.user and (package.maintainers.contains(app.user) or is_granted('ROLE_UPDATE_PACKAGES'))
+            %}
+                <p class="warning">This package is in a broken state and will not update anymore. Some branches contain invalid data and until you fix them the entire package is frozen. Click "Force Update" above to see details.</p>
             {% endif %}
 
             <p class="downloads">
@@ -66,7 +79,7 @@
                 {% if version and version.homepage %}
                     <span>Homepage:</span> <a href="{{ version.homepage }}">{{ version.homepage|replace({'http://': ''}) }}</a><br />
                 {% endif %}
-                {% set repoUrl = package.repository|replace({'git://github.com/': 'https://github.com/'}) %}
+                {% set repoUrl = package.repository|replace({'git://github.com/': 'https://github.com/', 'git@github.com:': 'https://github.com/'}) %}
                 <span>Canonical:</span> <a href="{{ repoUrl }}">{{ repoUrl }}</a><br />
                 {% if version.support.source is defined %}
                     <span>Source:</span> <a href="{{ version.support.source }}">{{ version.support.source }}</a><br />
@@ -112,6 +125,18 @@
                                     {% if version.hasVersionAlias() %}
                                         / {{ version.versionAlias }}
                                     {% endif %}
+                                    {% if version.isDevelopment %}
+                                    <span class="source-reference">reference: {{ version.source.reference|prettify_source_reference }}</span>
+                                    {% endif %}
+
+                                    {% if deleteForm is defined %}
+                                    <form class="action delete-version" action="{{ path("delete_version", {"versionId": version.id}) }}" method="post">
+                                        <input type="hidden" name="_method" value="DELETE" />
+                                        <input type="hidden" name="_token" value="{{ deleteVersionCsrfToken }}" />
+                                        <input type="submit" value="Delete">
+                                    </form>
+                                    {% endif %}
+
                                     <span class="release-date">{{ version.releasedAt|date("Y-m-d H:i") }} UTC</span>
                                     <span class="license{% if not version.license %} unknown{% endif %}">{{ version.license ? version.license|join(', ') : 'Unknown License' }}</span>
                                 </h1>

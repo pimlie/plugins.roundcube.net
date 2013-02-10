@@ -5,6 +5,11 @@ services:
         tags:
             - { name: twig.extension }
 
+    twig.extension.text:
+        class: Twig_Extensions_Extension_Text
+        tags:
+            - { name: twig.extension }
+
     packagist.package_dumper:
         class: Packagist\WebBundle\Package\Dumper
         arguments: [ @doctrine, @filesystem, @router, %kernel.root_dir%/../web/, %kernel.cache_dir% ]
@@ -61,3 +66,18 @@ services:
             - @snc_redis.default_client
             - @packagist.package_repository
             - @packagist.user_repository
+
+    packagist.package_manager:
+        class: Packagist\WebBundle\Model\PackageManager
+        arguments:
+            - @doctrine.orm.entity_manager
+            - @mailer
+            - @twig
+            - @logger
+            - { from: %mailer_from_email%, fromName: %mailer_from_name% }
+
+    packagist.profile.form.type:
+        class: Packagist\WebBundle\Form\Type\ProfileFormType
+        arguments: [%fos_user.model.user.class%]
+        tags:
+            - { name: form.type, alias: packagist_user_profile }

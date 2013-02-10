@@ -35,7 +35,7 @@
 
         <h2>Your packages</h2>
         {% if packages|length %}
-            {{ macros.listPackages(packages, true, true) }}
+            {{ macros.listPackages(packages, true, true, meta) }}
         {% else %}
             <div class="alert alert-warning">No packages found.</div>
         {% endif %}
