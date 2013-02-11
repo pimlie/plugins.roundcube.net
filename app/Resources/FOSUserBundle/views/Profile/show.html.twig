@@ -3,9 +3,8 @@
 {% import "PackagistWebBundle::macros.html.twig" as macros %}
 
 {% block content %}
+<div class="box clearfix">
     <div class="row-fluid">
-        {% include "PackagistWebBundle:User:nav.html.twig" with {'active': 'profile'} %}
-
         <h1>{{ user.username }} (that's you!)</h1>
         {% if not user.githubId %}
         <div class="alert alert-block alert-info">
@@ -13,6 +12,8 @@
             <a href="{{ hwi_oauth_login_url('github') }}">You can connect your github account</a>
         </div>
         {% endif %}
+
+        {% include "PackagistWebBundle:User:nav.html.twig" with {'active': 'profile'} %}
 
         {% if app.user.apiToken %}
         <div class="row-fluid">
@@ -40,4 +41,5 @@
             <div class="alert alert-warning">No packages found.</div>
         {% endif %}
     </div>
+</div>
 {% endblock %}
