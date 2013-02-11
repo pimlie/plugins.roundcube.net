@@ -26,9 +26,6 @@ class AppKernel extends Kernel
             new WhiteOctober\PagerfantaBundle\WhiteOctoberPagerfantaBundle(),
             new Nelmio\SolariumBundle\NelmioSolariumBundle(),
             new Nelmio\SecurityBundle\NelmioSecurityBundle(),
-
-            // for roundcube
-            new RoundCube\WebBundle\RoundCubeWebBundle(),
         );
 
         if (in_array($this->getEnvironment(), array('dev', 'test'))) {
