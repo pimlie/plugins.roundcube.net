@@ -60,6 +60,10 @@ header h1 a {
 	background: url('rcube_logo.gif') top left no-repeat;
 }
 
+footer ul {
+	float: left;
+}
+
 footer a, footer a:visited {
 	text-decoration: none;
 }
@@ -89,6 +93,11 @@ footer a:hover {
 	background-color: #fafafa;
 }
 
+.submit, .submit:active, .submit:visited, input[type="submit"] {
+	padding: 10px 16px;
+	font-size: 18px;
+}
+
 .container .headblock {
 	width: 900px;
 	margin-left: auto;
@@ -100,11 +109,36 @@ footer a:hover {
 	padding: 10px 0;
 }
 
+.container .headblock .betabadge {
+	display: inline-block;
+	position: relative;
+	top: -14px;
+	left: 6px;
+	padding: 3px 9px;
+	font-size: 11.844px;
+	font-weight: bold;
+	line-height: 14px;
+	color: #fff;
+	background-color: #d00;
+	text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+	white-space: nowrap;
+	-webkit-border-radius: 9px;
+	-moz-border-radius: 9px;
+	border-radius: 9px;
+/*
+	top: -15px;
+	left: -6px;
+	-ms-transform: rotate(28deg);
+	-moz-transform: rotate(28deg);
+	-webkit-transform: rotate(28deg);
+	-o-transform: rotate(28deg);
+	transform: rotate(28deg);
+*/
+}
+
 .container .headblock .submit {
 	margin-top: 0;
 	margin-bottom: 0;
-	padding: 10px 16px;
-	font-size: 18px;
 }
 
 .submit.left, .submit.left:active, .submit.left {

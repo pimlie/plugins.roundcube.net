@@ -1,6 +1,5 @@
 menu:
-    about_packagist: About
-    about_composer: About
+    about: About
     home: Home
     profile: Profile
     logout: Logout
@@ -10,6 +9,7 @@ menu:
     twitter: Follow @roundcube
     contact: Contact
     stats: Statistics
+    rss_feeds: Atom/RSS Feeds
 
 link_type:
     require: Requires
@@ -18,3 +18,4 @@ link_type:
     conflict: Conflicts
     replace: Replaces
     provide: Provides
+    roundcube: Roundcube Requirements

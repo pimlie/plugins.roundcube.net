@@ -1,0 +1,117 @@
+{% extends "PackagistWebBundle::layout.html.twig" %}
+
+{% block content %}
+    <div class="box clearfix">
+        <h1>What is plugins.roundcube.net?</h1>
+        <p>This site is the official plugin repository for Roundcube webmail.
+            It lets you find and upload plugins and allows <a href="http://getcomposer.org/">Composer</a> to download and install them into your Roundcube installation.</p>
+        <p>The plugin repository is built with Packagist, an open source Composer package repository. You can find the source on <a href="https://github.com/roundcube/plugins.roundcube.net">GitHub</a>.
+
+        <h1>How to submit plugins?</h1>
+        <h2>Naming your package</h2>
+        <p>First of all, you must pick a package name. This is a very important step since it can not change, and it should be unique enough to avoid problems in the future.</p>
+        <p>The first bit of the package name must be the vendor name, suffixed by a forward slash (/). Use your github account or your personal alias here.</p>
+        <p>The secondary part of the package name is the Roundcube plugin name itself. Make sure you use the exact name of the plugin which is also the name of the folder within Roundcube's <tt>plugins/</tt> directory.</p>
+        <p>Here is a list of typical package names for reference:
+<pre>
+// the default archive plugin authored by the Roundcube developer
+roundcube/archive
+
+// that could be the name of an address book module for the Kolab Groupware
+// (if the Kolab team did it, the vendor would be kolab)
+kolab/kolab_addressbook
+</pre></p>
+        <p>Note that package names are case-insensitive, and it's encouraged to use a underscores (_) as separator instead of CamelCased names.</p>
+
+        <h2>Creating a composer.json file</h2>
+        <p>The composer.json file should reside at the top of your plugins's git/svn/.. repository, and is the way you describe your plugin to both the plugin repository and composer.</p>
+        <p>A typical composer.json file looks like this:
+<pre>
+{
+    "name": "roundcube/archive",
+    "type": "roundcube-plugin",
+    "description": "Archive feature for Roundcube",
+    "keywords": ["mail","archive"],
+    "homepage": "http://github.com/roundcube/roundcubemail",
+    "license": "GPL-3.0",
+    "authors": [
+        {
+            "name": "Thomas Bruederli",
+            "email": "thomas@roundcube.net",
+            "homepage": "http://roundcube.net",
+            "role": "Developer"
+        }
+    ],
+    "repositories": [
+        {
+            "type": "composer",
+            "url": "http://plugins.roundcube.net"
+        }
+    ],
+    "require": {
+        "php": ">=5.3.0",
+        "roundcube/plugin-installer": ">=0.1.1"
+    },
+    "extra": {
+        "roundcube": {
+            "min-version": "0.9.0",
+            "max-version": "10.21"
+        }
+    }
+}
+</pre>
+
+        Most of this information is obvious, <tt>keywords</tt> are tags used in the full text search, <tt>require</tt> are list of dependencies that your package has.
+        This can of course be packages, not only a php version. You can use ext-foo to require php extensions (e.g. ext-apc).
+        Note that most extensions don't expose version information, so unless you know for sure it does, it's safer to use <code>"ext-apc": "*"</code>
+        to allow any version of it.</p>
+        <p>The complete schema description can be found in the <a href="http://getcomposer.org/doc/04-schema.md">Composer documentation</a>.</p>
+
+        <h2>Minimum requirements</h2>
+        <p>Roundcube plugins need to have the following two properties set correctly:
+<pre>
+    "type": "roundcube-plugin"
+</pre>
+<pre>
+    "require": {
+        "roundcube/plugin-installer": ">=0.1.1"
+    }
+</pre>
+        </p>
+        <p>If you want to limit the Roundcube version required for your plugin (or a certain vesion of your plugin) to run, you can do this within the <tt>extra</tt> block as shown in the example above.
+            It so happens that the internal Roundcube APIs change and therefore a newer version of your plugin might not work with an older version of Roundcube or vice versa.
+            In this case, specifying <tt>min-version</tt> and <tt>max-version</tt> can become essential.</p>
+        <p>Once you have this file committed in your repository root, you can <a href="{{ path('submit') }}">submit the package</a> to the plugin repository by entering your public source repository URL.</p>
+
+        <h1>Managing package versions</h1>
+        <p>New versions of your package are automatically fetched from tags you create in your VCS repository.</p>
+        <p>There are two ways to manage version numbering. The easiest is to just omit the version field from the composer.json file. If it is missing, the version name will be parsed from the tag and branch names. The other way which offers you a bit more flexibility is to define it yourself, but that means you should update the version field in the composer.json file before creating a tag, otherwise the tag will be considered broken and not imported. If you think you're likely to forget, you probably should use the first method.</p>
+        <p>Tag/version names should match 'X.Y.Z', or 'vX.Y.Z', with an optional suffix for RC, beta, alpha or patch versions. Here are a few examples of valid tag names:
+<pre>
+1.0.0
+v1.0.0
+1.10.5-RC1
+v4.4.4beta2
+v2.0.0-alpha
+v2.0.4-p1
+</pre>
+        Branches will automatically appear as "dev" versions that are easily installable by anyone that wants to try your library's latest and greatest, but that does not mean you should not tag releases. The use of <a href="http://semver.org/">Semantic Versioning</a> is strongly encouraged.</p>
+
+        <p>If you specify the version manually, it will be ignored by Packagist for branches, and tags will have to contain the same version number as the tag name to be valid, so there is really no benefit to doing this.</p>
+
+        <h1>Update Schedule</h1>
+
+        <p>New packages will be crawled <strong>immediately</strong> after submission if you have JS enabled.</p>
+
+        <p>Existing packages without auto-updating (GitHub hook) will be crawled <strong>once a day</strong> for updates. When the GitHub hook is enabled packages are crawled whenever you push, or at least once a week in case the crawl failed. You can also trigger a manual update on your package page if you are logged-in as a maintainer.</p>
+
+        <p>It is highly recommended to set up the <strong>GitHub service hook</strong> for all your packages. This reduces the load on our side, and ensures your package is updated almost instantly. To do so you can go to your GitHub repository, click the "Admin" button, then "Service Hooks". Pick "Packagist" in the list, and add the API key you will find on your <a href="{{ path('fos_user_profile_show') }}">profile</a>, plus your Packagist username if it is not the same as on GitHub. Check the "Active" box and submit the form.</p>
+
+        <p>The search index is updated <strong>every five minutes</strong>. It will index (or reindex) any package that has been crawled since the last time the search indexer ran.</p>
+
+        <h1>How to write Roundcube plugins</h1>
+        <p>A short introduction about how to write plugins for Roundcube can be found on our <a href="http://trac.roundcube.net/wiki/Doc_Plugins">wiki</a>.
+            This page also contains links to the plugin API reference and the list of hooks Roundcube has implemented.</p>
+        <p>Also join our <em><a href="http://lists.roundcube.net/dev">dev mailing list</a></em>.</p>
+    </div>
+{% endblock %}
