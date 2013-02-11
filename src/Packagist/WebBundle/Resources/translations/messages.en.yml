@@ -1,15 +1,14 @@
 menu:
-    about: About
-    rss_feeds: Atom/RSS Feeds
     about_packagist: About Packagist
+    rss_feeds: Atom/RSS Feeds
     about_composer: About Composer
     home: Home
     profile: Profile
     logout: Logout
     login: Login
     register: Register
-    browse_packages: Browse Plugins
-    twitter: Follow @roundcube
+    browse_packages: Browse Packages
+    twitter: Follow @packagist
     contact: Contact
     stats: Statistics
 
@@ -20,4 +19,3 @@ link_type:
     conflict: Conflicts
     replace: Replaces
     provide: Provides
-    roundcube: Roundcube Requirements

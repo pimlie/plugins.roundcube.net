@@ -1,14 +1,8 @@
 {% import "PackagistWebBundle::macros.html.twig" as packagist %}
 
-<div class="row-fluid">
-<code>
-    require: {
-        {{ "\"#{version.package.vendor}/#{version.package.packageName}\": \"#{version.hasVersionAlias() ? version.versionAlias : version.version}\"" }}
-    }
-</code>
-</div>
+<p class="requireme">require: <input type="text" readonly="readonly" value="{{ "\"#{version.package.vendor}/#{version.package.packageName}\": \"#{version.hasVersionAlias() ? version.requireVersionAlias : version.requireVersion}\"" }}" /></p>
 
-<h4>Author{{ version.authors|length > 1 ? 's' : '' }}</h2>
+<h2 class="authors">Author{{ version.authors|length > 1 ? 's' : '' }}</h2>
 <ul>
     {% for author in version.authors %}
         <li>
@@ -24,7 +18,7 @@
 <div class="clearfix package-links">
     {% for type in ["require", "devRequire", "suggest", "provide", "conflict", "replace"] %}
         <div class="{{ type }}s">
-            <h4>{{ ('link_type.' ~ type)|trans }}</h4>
+            <h2>{{ ('link_type.' ~ type)|trans }}</h2>
             {% if attribute(version, type)|length %}
                 <ul>
                     {%- for link in attribute(version, type) -%}
@@ -36,4 +30,15 @@
             {% endif %}
         </div>
     {% endfor %}
+    
+    {% if version.extra and version.extra.roundcube %}
+    <div class="roundcube">
+        <h2>{{ 'link_type.roundcube'|trans }}</h2>
+        <ul>
+        {%- for key,val in version.extra.roundcube -%}
+            <li><tt>{{ key }}</tt>: <tt>{{ val }}</tt></li>
+        {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
 </div>

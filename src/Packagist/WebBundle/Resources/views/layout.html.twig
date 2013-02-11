@@ -4,8 +4,10 @@
     <head>
         <meta charset="UTF-8" />
 
-        <title>{% block title %}Roundcube Webmail Plugin Repository{% endblock %}</title>
+        <title>{% block title %}Packagist{% endblock %}</title>
         <meta name="description" content="" />
+        <meta name="author" content="Jordi Boggiano" />
+
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
         <link rel="shortcut icon" href="{{ asset('favicon.ico') }}" />
@@ -17,8 +19,6 @@
         <!--[if lt IE 8]>
         <link rel="stylesheet" href="{{ asset('css/fontawesome/font-awesome-ie7.css') }}" />
         <![endif]-->
-
-        <link rel="stylesheet" href="{{ asset('css/roundcube.css') }}" />
 
         {% block head_feeds %}
         <link rel="alternate" type="application/rss+xml" title="Newly Submitted Packages - Packagist" href="{{ url('feed_packages', {_format: 'rss'}) }}" />
@@ -39,32 +39,25 @@
         {% block head_additions %}{% endblock %}
     </head>
     <body>
-        <div id="content">
-
         <div class="container">
-            <div class="banner">
-                <div class="banner-bg"></div>
-                <header>
-                    <h1 class="banner-logo"><a href="{{ path('home') }}">Roundcube Webmail</a></h1>
-
-                    <div class="topnav">
-                    {% if app.user %}
-                        <a href="{{ path('fos_user_profile_show') }}">{{ app.user.username }}</a> | <a href="{{ path('logout') }}">Logout</a>
-                    {% else %}
-                        <a href="{{ path('fos_user_registration_register') }}">Create a new account</a> |
-                        <a href="{{ path('hwi_oauth_connect') }}">Login</a>
-                    {% endif %}
-                    </div>
-                </header>
+            <div class="user">
+                {% if app.user %}
+                    <a href="{{ path('fos_user_profile_show') }}">{{ app.user.username }}</a> | <a href="{{ path('logout') }}">Logout</a>
+                {% else %}
+                    <a href="{{ path('fos_user_registration_register') }}">Create a new account</a>
+                    |
+                    <a href="{{ path('hwi_oauth_connect') }}">Login</a>
+                {% endif %}
             </div>
 
-            <div class="headblock">
-            {% if page is not defined or page != 'submit' %}
-                <a class="submit" href="{{ path('submit') }}">Submit a Plugin</a>
-            {% endif %}
-            <h1>The Official Plugin Repository</h1>
-            </div>
-            
+            <header>
+                {% if page is not defined or page != 'submit' %}
+                    <a class="submit" href="{{ path('submit') }}">Submit Package</a>
+                {% endif %}
+                <h1><a href="{{ path('home') }}">Packagist</a></h1>
+                <h2>The PHP package archivist.</h2>
+            </header>
+
             <div class="main" role="main">
                 {% for type, flashMessages in app.session.flashbag.all() %}
                     {% for flashMessage in flashMessages %}
@@ -97,8 +90,7 @@
 
         <footer>
             <ul>
-                <li><a href="{{ path('about') }}">{{ 'menu.about'|trans }}</a></li>
-                <li><a href="mailto:hello@roundcube.net">{{ 'menu.contact'|trans }}</a></li>
+                <li><a href="{{ path('about') }}">{{ 'menu.about_packagist'|trans }}</a></li>
                 <li><a href="{{ path('feeds') }}">{{ 'menu.rss_feeds'|trans }}</a></li>
                 <li><a href="{{ path('home') }}">{{ 'menu.home'|trans }}</a></li>
             </ul>
@@ -107,8 +99,8 @@
                     <li><a href="{{ path('fos_user_profile_show') }}">{{ 'menu.profile'|trans }}</a></li>
                     <li><a href="{{ path('logout') }}">{{ 'menu.logout'|trans }}</a></li>
                 {% else %}
-                    <li><a href="{{ path('hwi_oauth_connect') }}">{{ 'menu.login'|trans }}</a></li>
                     <li><a href="{{ path('fos_user_registration_register') }}">{{ 'menu.register'|trans }}</a></li>
+                    <li><a href="{{ path('hwi_oauth_connect') }}">{{ 'menu.login'|trans }}</a></li>
                 {% endif %}
             </ul>
             <ul>
@@ -116,8 +108,8 @@
                 <li><a href="{{ path('stats') }}">{{ 'menu.stats'|trans }}</a></li>
             </ul>
             <ul>
-                <li><a href="https://twitter.com/roundcube">{{ 'menu.twitter'|trans }}</a></li>
-                <li><a href="http://roundcube.net">Roundcube website</a></li>
+                <li><a href="https://twitter.com/packagist">{{ 'menu.twitter'|trans }}</a></li>
+                <li><a href="mailto:contact@packagist.org">{{ 'menu.contact'|trans }}</a></li>
             </ul>
             <div class="clearfix"></div>
         </footer>
