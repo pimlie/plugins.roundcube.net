@@ -130,6 +130,8 @@ class WebController extends Controller
             ($req->get('page', 1) - 1) * 15,
             $req->get('page', 1) * 15 - 1
         );
+        if (empty($popularIds))
+            $popularIds = array('0');
         $popular = $this->getDoctrine()->getRepository('PackagistWebBundle:Package')
             ->createQueryBuilder('p')->where('p.id IN (:ids)')->setParameter('ids', $popularIds)
             ->getQuery()->getResult();
