@@ -31,7 +31,7 @@
         </div>
     {% endfor %}
     
-    {% if attribute(version, 'extra') and 'roundcube' in attribute(version, 'extra')|keys %}
+    {% if version.extra and 'roundcube' in version.extra|keys %}
     <div class="roundcube">
         <h2>{{ 'link_type.roundcube'|trans }}</h2>
         <ul>

@@ -4,7 +4,7 @@
 
 {% block content %}
     <div class="box clearfix">
-        {% block content_title %}<h1>Packages</h1>{% endblock %}
+        {% block content_title %}<h1>Browse Plugins</h1>{% endblock %}
         {% block lists %}
             <div class="packages-short">
                 <h2>New Releases <a href="{{ url('feed_releases', {_format: 'rss'}) }}">RSS</a></h2>
@@ -15,7 +15,7 @@
                 </ul>
             </div>
             <div class="packages-short">
-                <h2>New Packages <a href="{{ url('feed_packages', {_format: 'rss'}) }}">RSS</a></h2>
+                <h2>New Plugins <a href="{{ url('feed_packages', {_format: 'rss'}) }}">RSS</a></h2>
                 <ul>
                     {% for pkg in newlySubmitted %}
                         <li><a href="{{ path('view_package', {name: pkg.name}) }}">{{ pkg.name }}</a> {{ pkg.description|truncate(40) }}</li>
@@ -23,7 +23,7 @@
                 </ul>
             </div>
             <div class="packages-short">
-                <h2>Popular Packages</h2>
+                <h2>Popular Plugins</h2>
                 <ul>
                     {% for pkg in popular %}
                         <li><a href="{{ path('view_package', {name: pkg.name}) }}">{{ pkg.name }}</a> {{ pkg.description|truncate(40) }}</li>
@@ -32,7 +32,7 @@
                 </ul>
             </div>
             <div class="packages-short">
-                <h2>Random Packages</h2>
+                <h2>Random Plugins</h2>
                 <ul>
                     {% for pkg in random %}
                         <li><a href="{{ path('view_package', {name: pkg.name}) }}">{{ pkg.name }}</a> {{ pkg.description|truncate(40) }}</li>

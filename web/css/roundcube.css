@@ -60,6 +60,10 @@ header h1 a {
 	background: url('rcube_logo.gif') top left no-repeat;
 }
 
+footer {
+	padding-bottom: 2em;
+}
+
 footer ul {
 	float: left;
 }
