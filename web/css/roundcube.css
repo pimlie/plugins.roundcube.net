@@ -109,8 +109,9 @@ footer a:hover {
 }
 
 .container .headblock h1 {
-	font-size: 20px;
+	font-size: 18px;
 	padding: 10px 0;
+	color: #888;
 }
 
 .container .headblock .betabadge {
